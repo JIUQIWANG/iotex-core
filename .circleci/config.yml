@@ -166,10 +166,10 @@ jobs:
             export GOROOT="/usr/local/go"
             export PATH=$PATH:$GOPATH/bin:$PATH:$GOROOT/bin
             cd cli/ioctl/ && ./buildcli.sh
-            cd tools/actioninjector.v2/ && ./build_injector.sh
+            cd ../../tools/actioninjector.v2/ && ./build_injector.sh
       - run:
           name: build bin put s3 (unstable) or github (release)
-          commnad: |
+          command: |
             if [ "${VERSION}" ]; then
                 echo "Put bin to github release ${VERSION}"
                 go get -u github.com/tcnksm/ghr
@@ -191,6 +191,7 @@ workflows:
       #- build_test_darwin
       - build_test_docker
 
+
   scheduled-workflow:
     triggers:
       - schedule:
@@ -202,4 +203,4 @@ workflows:
     jobs:
       - nightly_build_docker
       - nightly_bin_build_docker
-   #    - nightly_bin_build_darwin
+      - nightly_bin_build_darwin

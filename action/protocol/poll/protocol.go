@@ -8,21 +8,23 @@ package poll
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"time"
 
+	"github.com/iotexproject/go-pkgs/hash"
+	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-election/committee"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 
-	"github.com/iotexproject/go-pkgs/hash"
-	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-core/action"
 	"github.com/iotexproject/iotex-core/action/protocol"
 	accountutil "github.com/iotexproject/iotex-core/action/protocol/account/util"
 	"github.com/iotexproject/iotex-core/action/protocol/vote/candidatesutil"
 	"github.com/iotexproject/iotex-core/blockchain/genesis"
 	"github.com/iotexproject/iotex-core/crypto"
+	"github.com/iotexproject/iotex-core/db"
 	"github.com/iotexproject/iotex-core/pkg/log"
 	"github.com/iotexproject/iotex-core/pkg/util/byteutil"
 	"github.com/iotexproject/iotex-core/state"
@@ -35,6 +37,12 @@ const (
 
 // ErrNoElectionCommittee is an error that the election committee is not specified
 var ErrNoElectionCommittee = errors.New("no election committee specified")
+
+// ErrProposedDelegatesLength is an error that the proposed delegate list length is not right
+var ErrProposedDelegatesLength = errors.New("the proposed delegate list length")
+
+// ErrDelegatesNotAsExpected is an error that the delegates are not as expected
+var ErrDelegatesNotAsExpected = errors.New("delegates are not as expected")
 
 // GetBlockTime defines a function to get block creation time
 type GetBlockTime func(uint64) (time.Time, error)
@@ -135,15 +143,16 @@ func (p *lifeLongDelegatesProtocol) readBlockProducers() ([]byte, error) {
 }
 
 type governanceChainCommitteeProtocol struct {
-	cm                     protocol.ChainManager
-	getBlockTime           GetBlockTime
-	getEpochHeight         GetEpochHeight
-	getEpochNum            GetEpochNum
-	electionCommittee      committee.Committee
-	initGravityChainHeight uint64
-	numCandidateDelegates  uint64
-	numDelegates           uint64
-	addr                   address.Address
+	cm                        protocol.ChainManager
+	getBlockTime              GetBlockTime
+	getEpochHeight            GetEpochHeight
+	getEpochNum               GetEpochNum
+	electionCommittee         committee.Committee
+	initGravityChainHeight    uint64
+	numCandidateDelegates     uint64
+	numDelegates              uint64
+	addr                      address.Address
+	initialCandidatesInterval time.Duration
 }
 
 // NewGovernanceChainCommitteeProtocol creates a Poll Protocol which fetch result from governance chain
@@ -156,6 +165,7 @@ func NewGovernanceChainCommitteeProtocol(
 	getEpochNum GetEpochNum,
 	numCandidateDelegates uint64,
 	numDelegates uint64,
+	initialCandidatesInterval time.Duration,
 ) (Protocol, error) {
 	if electionCommittee == nil {
 		return nil, ErrNoElectionCommittee
@@ -178,15 +188,16 @@ func NewGovernanceChainCommitteeProtocol(
 	}
 
 	return &governanceChainCommitteeProtocol{
-		cm:                     cm,
-		electionCommittee:      electionCommittee,
-		initGravityChainHeight: initGravityChainHeight,
-		getBlockTime:           getBlockTime,
-		getEpochHeight:         getEpochHeight,
-		getEpochNum:            getEpochNum,
-		numCandidateDelegates:  numCandidateDelegates,
-		numDelegates:           numDelegates,
-		addr:                   addr,
+		cm:                        cm,
+		electionCommittee:         electionCommittee,
+		initGravityChainHeight:    initGravityChainHeight,
+		getBlockTime:              getBlockTime,
+		getEpochHeight:            getEpochHeight,
+		getEpochNum:               getEpochNum,
+		numCandidateDelegates:     numCandidateDelegates,
+		numDelegates:              numDelegates,
+		addr:                      addr,
+		initialCandidatesInterval: initialCandidatesInterval,
 	}, nil
 }
 
@@ -196,7 +207,17 @@ func (p *governanceChainCommitteeProtocol) Initialize(
 ) (err error) {
 	log.L().Info("Initialize poll protocol", zap.Uint64("height", p.initGravityChainHeight))
 	var ds state.CandidateList
-	if ds, err = p.delegatesByGravityChainHeight(p.initGravityChainHeight); err != nil {
+
+	for {
+		ds, err = p.delegatesByGravityChainHeight(p.initGravityChainHeight)
+		if err == nil || errors.Cause(err) != db.ErrNotExist {
+			break
+		}
+		log.L().Error("calling committee,waiting for a while", zap.Int64("duration", int64(p.initialCandidatesInterval.Seconds())), zap.String("unit", " seconds"))
+		time.Sleep(p.initialCandidatesInterval)
+	}
+
+	if err != nil {
 		return
 	}
 	log.L().Info("Validating delegates from gravity chain", zap.Any("delegates", ds))
@@ -431,19 +452,17 @@ func validate(ctx context.Context, p Protocol, act action.Action) error {
 		return err
 	}
 	if len(ds) != len(proposedDelegates) {
-		return errors.Errorf(
-			"the proposed delegate list length, %d, is not as expected, %d",
+		msg := fmt.Sprintf(", %d, is not as expected, %d",
 			len(proposedDelegates),
-			len(ds),
-		)
+			len(ds))
+		return errors.Wrap(ErrProposedDelegatesLength, msg)
 	}
 	for i, d := range ds {
 		if !proposedDelegates[i].Equal(d) {
-			return errors.Errorf(
-				"delegates are not as expected, %v vs %v (expected)",
+			msg := fmt.Sprintf(", %v vs %v (expected)",
 				proposedDelegates,
-				ds,
-			)
+				ds)
+			return errors.Wrap(ErrDelegatesNotAsExpected, msg)
 		}
 	}
 	return nil
