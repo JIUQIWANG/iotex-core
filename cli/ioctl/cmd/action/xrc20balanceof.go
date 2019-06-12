@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
 	"github.com/iotexproject/iotex-address/address"
@@ -37,15 +36,11 @@ var Xrc20BalanceofCmd = &cobra.Command{
 		if err == nil {
 			fmt.Println(output)
 			result := new(big.Int)
-			result.SetString(output, 16)
+			result.SetString(output, 10)
 			fmt.Printf("Ouptut in decimal format: %d\n", result)
 		}
 		return err
 	},
-}
-
-func toEthAddr(addr address.Address) common.Address {
-	return common.BytesToAddress(addr.Bytes())
 }
 
 // read reads smart contract on IoTeX blockchain

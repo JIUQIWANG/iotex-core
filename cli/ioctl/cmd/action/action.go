@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang/protobuf/proto"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -41,7 +42,7 @@ var (
 	bytecodeString       string
 	gasPrice             string
 	xrc20ContractAddress string
-	xrc20TransferAmount  uint64
+	xrc20TransferAmount  big.Int
 	xrc20Bytes           []byte
 	xrc20ABI             abi.ABI
 	xrc20OwnerAddress    address.Address
@@ -130,6 +131,10 @@ func inputToExecution(contract string, amount *big.Int) (*action.Execution, erro
 		return nil, err
 	}
 	return action.NewExecution(contract, nonce, amount, gasLimit, gasPriceRau, bytecodeBytes)
+}
+
+func toEthAddr(addr address.Address) common.Address {
+	return common.BytesToAddress(addr.Bytes())
 }
 
 func setActionFlagsAction(cmds ...*cobra.Command) {
